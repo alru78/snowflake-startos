@@ -68,17 +68,15 @@ cat <<'HTML'
   .lbl i { font-style: normal; color: var(--faint); }
   .val { font: 700 26px/1.1 var(--mono); font-variant-numeric: tabular-nums; }
   .val small { font-size: 13px; color: var(--dim); font-weight: 600; margin-left: 3px; }
-  #nat { font-size: 21px; overflow-wrap: anywhere; }
   .glow-c { color: var(--cyan); text-shadow: 0 0 14px rgba(34,211,238,.45); }
   .glow-g { text-shadow: 0 0 14px rgba(74,222,128,.45); }
   .meta { margin-top: 6px; font: 11.5px var(--mono); color: var(--dim); display: flex; gap: 10px; flex-wrap: wrap; }
   .up { color: var(--green); } .down { color: var(--amber); }
   .card.has-spark { padding-bottom: 40px; }
   .spark { position: absolute; left: 14px; bottom: 8px; width: calc(100% - 28px); height: 26px; opacity: .9; }
-  .split { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--faint);
-    display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-  .split .meta { margin: 0; }
-  .uval { font: 700 15px/1 var(--mono); color: var(--amber); font-variant-numeric: tabular-nums; }
+  .ud { margin-top: 4px; }
+  .ud b { font-weight: 600; color: var(--fg); }
+  .ud .dn { color: var(--cyan); } .ud .upl { color: var(--magenta); }
 
   .grid.compact { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
   .card.mini { min-height: 0; padding: 9px 12px; }
@@ -122,48 +120,47 @@ cat <<'HTML'
   <div class="sub">tor pluggable-transport relay · hourly telemetry · Snowflake Dashboard powered by ruxal</div>
 
   <div class="grid">
-    <div class="card" style="--rail: var(--green)" id="natcard">
-      <div class="lbl">NAT · Uptime <i>01</i></div>
-      <div class="val" id="nat">—</div>
-      <div class="split"><span class="uval" id="uptime">—</span><span class="meta" id="since">—</span></div>
-    </div>
     <div class="card has-spark">
-      <div class="lbl">Bandwidth · last 24h <i>02</i></div>
+      <div class="lbl">Bandwidth · last 24h <i>01</i></div>
       <div class="val glow-c" id="last24">—</div>
       <div class="meta"><span id="d24"></span><span id="c24"></span></div>
+      <div class="meta ud" id="ud24"></div>
       <svg class="spark" id="spark-24h" preserveAspectRatio="none"></svg>
     </div>
     <div class="card has-spark">
-      <div class="lbl">Bandwidth · 7d <i>03</i></div>
+      <div class="lbl">Bandwidth · 7d <i>02</i></div>
       <div class="val" id="w7">—</div>
       <div class="meta"><span id="d7"></span><span id="c7"></span></div>
+      <div class="meta ud" id="ud7"></div>
       <svg class="spark" id="spark-7d" preserveAspectRatio="none"></svg>
     </div>
     <div class="card has-spark" style="--rail: var(--magenta)">
-      <div class="lbl">Avg / day <i>04</i></div>
+      <div class="lbl">Avg / day <i>03</i></div>
       <div class="val" id="avgday">—</div>
       <div class="meta" id="days">—</div>
+      <div class="meta ud" id="udavg"></div>
       <svg class="spark" id="spark-avg" preserveAspectRatio="none"></svg>
     </div>
     <div class="card has-spark" style="--rail: var(--magenta)">
-      <div class="lbl">All-time <i>05</i></div>
+      <div class="lbl">All-time <i>04</i></div>
       <div class="val" id="all">—</div>
       <div class="meta" id="call">—</div>
+      <div class="meta ud" id="udall"></div>
       <svg class="spark" id="spark-all" preserveAspectRatio="none"></svg>
     </div>
   </div>
 
   <div class="grid compact">
     <div class="card mini">
-      <div class="lbl">Conn · last hour <i>06</i></div>
+      <div class="lbl">Conn · last hour <i>05</i></div>
       <div class="row"><span class="val" id="c1">—</span><span class="meta" id="c1m"></span></div>
     </div>
     <div class="card mini">
-      <div class="lbl">Peak throughput <i>07</i></div>
+      <div class="lbl">Peak throughput <i>06</i></div>
       <div class="row"><span class="val" id="peakmbps">—</span><span class="meta">hourly avg, 24h</span></div>
     </div>
     <div class="card mini">
-      <div class="lbl">Telemetry <i>08</i></div>
+      <div class="lbl">Telemetry <i>07</i></div>
       <div class="row"><span class="val" id="nsum">—</span><span class="meta">hourly summaries</span></div>
     </div>
   </div>
@@ -200,12 +197,12 @@ BEGIN { n = 0; nat = "unknown" }
 # Each summary is logged through two loggers, so drop exact repeats.
 # The proxy reports decimal kilobytes (bytes / 1000).
 /completed successful connections/ && !seen[$0]++ {
-  n++; row[n] = sprintf("[\"%s\",%d,%d]", iso($1, $2), $9 + 0, $16 + $21)
+  n++; row[n] = sprintf("[\"%s\",%d,%d,%d]", iso($1, $2), $9 + 0, $16 + 0, $21 + 0)
 }
 END {
   gsub(/[^A-Za-z0-9\/._-]/, "", logfile)
   printf "const GENERATED = \"%s\", STARTED = \"%s\", NAT = \"%s\", NAT_TS = \"%s\", LOG = \"%s\";\n", generated, start_ts, nat, nat_ts, logfile
-  printf "// [hour ending (UTC), connections, KB relayed down+up], oldest first\nconst HOURS = ["
+  printf "// [hour ending (UTC), connections, KB down, KB up], oldest first\nconst HOURS = ["
   for (i = 1; i <= n; i++) printf "%s%s", (i > 1 ? "," : ""), row[i]
   print "];"
 }' "$( [ -f "$LOG_FILE" ] && printf %s "$LOG_FILE" || printf /dev/null )"
@@ -218,7 +215,7 @@ const gbHtml = kb => (kb / 1e6).toFixed(2) + "<small>GB</small>";
 const sum = (a, k) => a.reduce((s, r) => s + r[k], 0);
 
 const now = Date.parse(GENERATED);
-const rows = HOURS.map(([iso, c, kb]) => ({ t: Date.parse(iso), iso, c, kb }));
+const rows = HOURS.map(([iso, c, dn, up]) => ({ t: Date.parse(iso), iso, c, dn, up, kb: dn + up }));
 const firstT = rows.length ? rows[0].t : now, lastT = rows.length ? rows[rows.length - 1].t : 0;
 const win = (from, to) => rows.filter(r => r.t > now - from * H && r.t <= now - to * H);
 
@@ -237,12 +234,10 @@ $("dot").classList.toggle("stale", !fresh);
 $("state").textContent = !rows.length ? "Waiting for first summary" : fresh ? "Relay up" : "No recent summary";
 const natOk = /^unrestricted$/i.test(NAT), natWarn = /^restricted$/i.test(NAT);
 const natColor = natOk ? "var(--green)" : natWarn ? "var(--amber)" : "var(--dim)";
-$("nat").textContent = NAT.toUpperCase(); $("nat").style.color = natColor;
-if (natOk) $("nat").classList.add("glow-g");
-$("natcard").style.setProperty("--rail", natColor);
 $("nat-strip").textContent = NAT.toLowerCase(); $("nat-strip").style.color = natColor;
+if (NAT_TS) $("nat-strip").title = "detected " + NAT_TS.replace("T", " ");
 $("gen").textContent = GENERATED.replace("T", " ");
-$("since").textContent = STARTED ? "up since " + STARTED.slice(5, 16).replace("T", " ") + "Z" : "start not logged";
+$("uptime-strip").title = STARTED ? "proxy started " + STARTED.replace("T", " ") : "start not logged";
 $("src").textContent = `${rows.length} hourly summaries parsed from ${LOG}`;
 
 // rolling windows, anchored to now so a stopped proxy shows as quiet, not stale data
@@ -252,10 +247,15 @@ $("c24").textContent = sum(d24, "c") + " conn";
 trend("d24", sum(d24, "kb"), sum(p24, "kb"), 24, "24h");
 $("w7").innerHTML = gbHtml(sum(w7, "kb"));
 $("c7").textContent = sum(w7, "c") + " conn";
+const gbs = kb => (kb / 1e6).toFixed(2) + " GB";
+const ud = (id, a, div = 1) => { $(id).innerHTML =
+  `<span class="dn">↓</span> <b>${gbs(sum(a, "dn") / div)}</b> <span class="upl">↑</span> <b>${gbs(sum(a, "up") / div)}</b>`; };
 trend("d7", sum(w7, "kb"), sum(p7, "kb"), 168, "7d");
 
 $("all").innerHTML = gbHtml(sum(rows, "kb"));
 $("call").textContent = sum(rows, "c") + " conn · cumulative";
+ud("ud24", d24); ud("ud7", w7); ud("udall", rows);
+if (rows.length) ud("udavg", rows, rows.length / 24);
 const days = rows.length / 24;
 $("avgday").innerHTML = rows.length ? gbHtml(sum(rows, "kb") / days) : "—";
 $("days").textContent = days.toFixed(1) + " days logged";
@@ -349,7 +349,7 @@ const base = STARTED ? (now - Date.parse(STARTED)) / 1000 : NaN, t0 = Date.now()
 function tick() {
   if (isNaN(base)) return;
   const s = Math.max(0, base + (Date.now() - t0) / 1000);
-  $("uptime").textContent = fmt(s); $("uptime-strip").textContent = fmt(s).replace(/ \d+s$/, "");
+  $("uptime-strip").textContent = fmt(s);
 }
 tick(); setInterval(tick, 1000);
 </script>
