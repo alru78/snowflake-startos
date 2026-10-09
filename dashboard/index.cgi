@@ -176,7 +176,7 @@ cat <<'HTML'
   <div class="panel">
     <div class="phead">
       <div class="ptitle"><span>▸</span>Activity · hour × weekday</div>
-      <div class="pmeta">UTC · avg MB per hour</div>
+      <div class="pmeta">UTC · summary hour ending · avg MB per hour</div>
     </div>
     <div class="heat" id="heat"></div>
     <div class="legend">less <div style="background:#141429"></div><div style="background:#1f1f3d"></div><div style="background:#333366"></div><div style="background:#5c5ca3"></div><div style="background:#9999d6"></div> more</div>
@@ -213,11 +213,13 @@ const $ = id => document.getElementById(id);
 const el = (t, a, p) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); if (p) p.appendChild(e); return e; };
 const gbHtml = kb => (kb / 1e6).toFixed(2) + "<small>GB</small>";
 const sum = (a, k) => a.reduce((s, r) => s + r[k], 0);
+const loggedDays = hours => hours / 24;
 
 const now = Date.parse(GENERATED);
 const rows = HOURS.map(([iso, c, dn, up]) => ({ t: Date.parse(iso), iso, c, dn, up, kb: dn + up }));
 const firstT = rows.length ? rows[0].t : now, lastT = rows.length ? rows[rows.length - 1].t : 0;
 const win = (from, to) => rows.filter(r => r.t > now - from * H && r.t <= now - to * H);
+const bucketIndex = (t, count, duration) => count - 1 - Math.floor((now - t) / duration);
 
 // A trend is only shown once the log covers the whole previous window.
 function trend(id, cur, prev, hours, label) {
@@ -255,8 +257,8 @@ trend("d7", sum(w7, "kb"), sum(p7, "kb"), 168, "7d");
 $("all").innerHTML = gbHtml(sum(rows, "kb"));
 $("call").textContent = sum(rows, "c") + " conn · cumulative";
 ud("ud24", d24); ud("ud7", w7); ud("udall", rows);
-if (rows.length) ud("udavg", rows, rows.length / 24);
-const days = rows.length / 24;
+const days = loggedDays(rows.length);
+if (rows.length) ud("udavg", rows, days);
 $("avgday").innerHTML = rows.length ? gbHtml(sum(rows, "kb") / days) : "—";
 $("days").textContent = days.toFixed(1) + " days logged";
 $("nsum").textContent = rows.length;
@@ -266,7 +268,7 @@ $("c1m").textContent = lastC == null ? "no summary this hour" : "≈ " + (lastC 
 
 // 24 hourly slots ending now; a slot without a summary stays empty
 const slots = Array(24).fill(null);
-for (const r of d24) { const i = 23 - Math.floor((now - r.t) / H); if (i >= 0 && i < 24) slots[i] = (slots[i] || 0) + r.kb / 1e3; }
+for (const r of d24) { const i = bucketIndex(r.t, 24, H); if (i >= 0 && i < 24) slots[i] = (slots[i] || 0) + r.kb / 1e3; }
 const filled = slots.filter(v => v != null), peakMB = filled.length ? Math.max(...filled) : 0;
 $("peakmbps").innerHTML = (peakMB * 8 / 3600).toFixed(2) + "<small>Mbit/s</small>";
 const totalMB = filled.reduce((a, b) => a + b, 0);
@@ -274,11 +276,23 @@ $("chartmeta").textContent = filled.length
   ? `Σ ${(totalMB / 1e3).toFixed(2)} GB · peak ${peakMB.toFixed(1)} MB · avg ${(totalMB / filled.length).toFixed(0)} MB/h`
   : "";
 
-// daily totals (UTC dates) for the 7d / avg / all-time sparklines
+const weekSlots = Array(7).fill(0);
+for (const r of w7) weekSlots[bucketIndex(r.t, 7, 24 * H)] += r.kb / 1e6;
+
+// daily totals (UTC dates) for the avg / all-time sparklines
 const byDay = new Map();
-for (const r of rows) { const k = r.iso.slice(0, 10); byDay.set(k, (byDay.get(k) || 0) + r.kb / 1e6); }
-const history = [...byDay.values()];
-let acc = 0; const cumulative = history.map(v => (acc += v));
+for (const r of rows) {
+  const k = r.iso.slice(0, 10), day = byDay.get(k) || { gb: 0, hours: 0 };
+  day.gb += r.kb / 1e6; day.hours++;
+  byDay.set(k, day);
+}
+let totalGB = 0, totalHours = 0;
+const cumulative = [], dailyAverage = [];
+for (const day of byDay.values()) {
+  totalGB += day.gb; totalHours += day.hours;
+  cumulative.push(totalGB);
+  dailyAverage.push(totalGB / loggedDays(totalHours));
+}
 
 function spark(id, data, color) {
   if (data.length < 2) return;
@@ -291,8 +305,8 @@ function spark(id, data, color) {
   el("path", { d, fill: "none", stroke: color, "stroke-width": 1.4, "vector-effect": "non-scaling-stroke" }, svg);
 }
 if (filled.length) spark("spark-24h", slots.map(v => v || 0), "#22d3ee");
-spark("spark-7d", history.slice(-7), "#e879f9");
-spark("spark-avg", cumulative.map((v, i) => v / (i + 1)), "#e879f9");
+spark("spark-7d", weekSlots, "#e879f9");
+spark("spark-avg", dailyAverage, "#e879f9");
 spark("spark-all", cumulative, "#e879f9");
 
 function drawChart() {
@@ -314,7 +328,7 @@ function drawChart() {
   slots.forEach((v, i) => {
     const x = L + i * cw + cw * .18;
     if (i % 6 === 0 || i === 23)
-      el("text", { x: x + cw * .32, y: Ht - 6, "text-anchor": "middle" }, svg).textContent = i === 23 ? "now" : `-${24 - i}h`;
+      el("text", { x: i === 23 ? W - 2 : x + cw * .32, y: Ht - 6, "text-anchor": i === 23 ? "end" : "middle" }, svg).textContent = i === 23 ? "now" : `-${24 - i}h`;
     if (v == null) return;
     const h = (Ht - T - B) * v / top, isPeak = v === peakMB;
     const r = el("rect", { x, y: Ht - B - h, width: cw * .64, height: Math.max(h, 1), fill: isPeak ? "#9999d6" : "url(#bg)" }, svg);
@@ -337,7 +351,7 @@ const hm = $("heat");
   heat[w].forEach((v, h) => {
     const c = document.createElement("div");
     if (v == null) c.className = "na"; else c.style.background = ramp[Math.min(4, Math.floor(v / hmax * 5))];
-    c.title = `${d} ${String(h).padStart(2, "0")}:00 UTC · ${v == null ? "no data" : v.toFixed(1) + " MB avg"}`;
+    c.title = `${d} ${String(h).padStart(2, "0")}:00–${String(h).padStart(2, "0")}:59 UTC summary ending · ${v == null ? "no data" : v.toFixed(1) + " MB avg"}`;
     hm.appendChild(c);
   });
 });

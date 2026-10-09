@@ -1,0 +1,81 @@
+name: Watch upstream Snowflake version
+
+# Checks whether Docker Hub has a newer tagged release of
+# thetorproject/snowflake-proxy than what's pinned in the Dockerfile, and
+# opens an issue if so. Doesn't touch any code itself — see UPDATING.md
+# for the manual bump steps once a new version is found.
+#
+# Manual trigger only for now (Run workflow, above) — Tor doesn't cut new
+# snowflake-proxy releases often enough to justify a recurring schedule.
+# Add a `schedule:` trigger back here if that changes.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine pinned and latest versions
+        id: versions
+        run: |
+          set -euo pipefail
+
+          PINNED=$(grep -oP '^FROM thetorproject/snowflake-proxy:\Kv[0-9.]+' Dockerfile)
+          echo "pinned=$PINNED" >> "$GITHUB_OUTPUT"
+
+          TAGS_JSON=$(curl -sf 'https://hub.docker.com/v2/repositories/thetorproject/snowflake-proxy/tags?page_size=100')
+          LATEST=$(echo "$TAGS_JSON" \
+            | jq -r '.results[].name' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V \
+            | tail -1)
+
+          if [ -z "$LATEST" ]; then
+            echo "::error::Could not determine the latest upstream tag from Docker Hub"
+            exit 1
+          fi
+
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+
+          if [ "$PINNED" = "$LATEST" ]; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for an existing open issue
+        if: steps.versions.outputs.up_to_date == 'false'
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          COUNT=$(gh issue list \
+            --search "\"Upstream snowflake-proxy ${{ steps.versions.outputs.latest }} available\" in:title" \
+            --state open \
+            --json number \
+            --jq 'length')
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Open an issue for the new upstream version
+        if: steps.versions.outputs.up_to_date == 'false' && steps.existing.outputs.count == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "Upstream snowflake-proxy ${{ steps.versions.outputs.latest }} available (pinned: ${{ steps.versions.outputs.pinned }})" \
+            --body "$(cat <<BODYEOF
+          Docker Hub now has \`thetorproject/snowflake-proxy:${{ steps.versions.outputs.latest }}\`. This repo's \`Dockerfile\` is still pinned to \`${{ steps.versions.outputs.pinned }}\`.
+
+          See \`UPDATING.md\` for the bump steps: update the \`FROM\` line in \`Dockerfile\`, bump \`version\` in \`startos/versions/current.ts\`, rewrite release notes for all locales, and check \`dashboard/index.cgi\`'s parsing of the hourly summary log line against the new version's actual output.
+
+          Opened automatically by the "Watch upstream Snowflake version" workflow.
+          BODYEOF
+          )"

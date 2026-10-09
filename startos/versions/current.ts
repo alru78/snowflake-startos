@@ -1,7 +1,7 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
 
 export const current = VersionInfo.of({
-  version: '2.14.1:6',
+  version: '2.14.1:5',
   releaseNotes: {
     en_US: `Redesigned dashboard: rolling 24-hour and 7-day bandwidth with trends and a down/up split, live uptime in the status line, daily average and all-time sparklines, peak throughput, and a weekday-by-hour activity heatmap.`,
     es_ES: `Panel rediseñado: ancho de banda de las últimas 24 horas y 7 días con tendencias y desglose de bajada/subida, tiempo de actividad en vivo en la barra de estado, promedio diario y totales con minigráficos, rendimiento máximo y un mapa de calor de actividad por día y hora.`,
